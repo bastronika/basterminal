@@ -1,12 +1,19 @@
 name: Android Release
 
-# Signed release APKs. Runs on version tags (v0.2.0, ...) and on demand.
+# Signed release APKs. Runs on version tags (v0.2.0, ...) and on demand; a
+# manual run also publishes a GitHub Release tagged v<version> from
+# tauri.conf.json unless "publish" is unticked.
 # Requires repository secrets — see "Build rilis" in README:
 #   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish a GitHub Release (tag v<version> from tauri.conf.json)"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -82,6 +89,7 @@ jobs:
           KS_FILE="$RUNNER_TEMP/release.jks"
           echo "$KS" | base64 -d > "$KS_FILE"
           VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           mkdir -p dist-apk
           found=0
           for apk in $(find src-tauri/gen/android/app/build/outputs/apk -name '*-release*.apk'); do
@@ -104,8 +112,12 @@ jobs:
           path: dist-apk/*.apk
 
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.publish
         uses: softprops/action-gh-release@v2
         with:
+          # On a manual run the tag is created at the built commit.
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('v{0}', env.VERSION) }}
+          target_commitish: ${{ github.sha }}
+          name: BasTerminal ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('v{0}', env.VERSION) }}
           files: dist-apk/*.apk
           generate_release_notes: true
