@@ -1,0 +1,111 @@
+name: Android Release
+
+# Signed release APKs. Runs on version tags (v0.2.0, ...) and on demand.
+# Requires repository secrets — see "Build rilis" in README:
+#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      BUILD_TOOLS: "35.0.0"
+    steps:
+      - name: Check signing secrets
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          if [ -z "$KS" ] || [ -z "$KS_PASS" ] || [ -z "$KEY_ALIAS" ]; then
+            echo "::error::Secret keystore belum diisi. Lihat bagian 'Build rilis' di README."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+        with:
+          # The default also installs the obsolete `tools` package, which no longer exists.
+          packages: platform-tools
+
+      - name: Install Android NDK
+        run: |
+          sdkmanager --install "ndk;27.2.12479018" "platforms;android-35" "build-tools;$BUILD_TOOLS"
+          echo "NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Init Android project
+        run: test -d src-tauri/gen/android || npx tauri android init --ci
+
+      # One APK per CPU architecture keeps downloads small. x86/x86_64 are
+      # only needed for emulators, so they are skipped here.
+      - name: Build release APKs
+        run: npx tauri android build --apk --split-per-abi --target aarch64 --target armv7 --ci
+
+      - name: Sign APKs
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # Key password defaults to the keystore password (keytool's default).
+          export KEY_PASS="${KEY_PASS:-$KS_PASS}"
+          BT="$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS"
+          KS_FILE="$RUNNER_TEMP/release.jks"
+          echo "$KS" | base64 -d > "$KS_FILE"
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          mkdir -p dist-apk
+          found=0
+          for apk in $(find src-tauri/gen/android/app/build/outputs/apk -name '*-release*.apk'); do
+            abi=$(basename "$(dirname "$(dirname "$apk")")")
+            out="dist-apk/basterminal-$VERSION-$abi.apk"
+            "$BT/zipalign" -P 16 -f 4 "$apk" "$RUNNER_TEMP/aligned.apk"
+            "$BT/apksigner" sign --ks "$KS_FILE" --ks-key-alias "$KEY_ALIAS" \
+              --ks-pass env:KS_PASS --key-pass env:KEY_PASS \
+              --out "$out" "$RUNNER_TEMP/aligned.apk"
+            "$BT/apksigner" verify --print-certs "$out" | head -3
+            found=1
+          done
+          rm -f "$KS_FILE"
+          [ "$found" = 1 ] || { echo "::error::Tidak ada APK rilis ditemukan"; exit 1; }
+          ls -lh dist-apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: basterminal-release-apk
+          path: dist-apk/*.apk
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-apk/*.apk
+          generate_release_notes: true

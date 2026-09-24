@@ -24,3 +24,10 @@ russh-sftp = "3"
 thiserror = "2"
 uuid = { version = "1", features = ["v4"] }
 base64 = "0.22"
+
+# Smaller, faster release builds (APK size matters on mobile).
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

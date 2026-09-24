@@ -59,6 +59,49 @@ npm run tauri android build -- --apk      # APK rilis (perlu signing)
 
 Tanpa setup lokal: setiap push menjalankan workflow **Android APK** di GitHub Actions. APK debug siap pasang bisa diunduh dari tab *Actions* → run terbaru → *Artifacts* → `basterminal-debug-apk`.
 
+### Build rilis Android (APK bertanda tangan)
+
+APK rilis ditandatangani dengan keystore milik Anda. **Keystore + password wajib disimpan baik-baik**: tanpa keduanya, update aplikasi tidak bisa dipasang di atas versi lama (harus uninstall dulu), dan tidak bisa update di Play Store.
+
+**1. Buat keystore (sekali saja, di komputer Anda)**
+
+Linux / macOS / Git Bash:
+
+```bash
+./scripts/create-keystore.sh                # menghasilkan basterminal-release.jks
+```
+
+Windows (PowerShell, butuh Java/`keytool`):
+
+```powershell
+keytool -genkeypair -v -keystore basterminal-release.jks -alias basterminal -keyalg RSA -keysize 4096 -validity 10000
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("basterminal-release.jks")) | Set-Content -NoNewline basterminal-release.jks.base64.txt
+```
+
+Jangan pernah commit file `.jks` ke repo (sudah di-`.gitignore`).
+
+**2. Isi GitHub Secrets** — *Settings → Secrets and variables → Actions → New repository secret*:
+
+| Secret | Isi |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | isi file `basterminal-release.jks.base64.txt` |
+| `ANDROID_KEYSTORE_PASSWORD` | password keystore |
+| `ANDROID_KEY_ALIAS` | `basterminal` |
+| `ANDROID_KEY_PASSWORD` | password key (biasanya sama dengan password keystore) |
+
+**3. Build**
+
+- Manual: tab *Actions* → **Android Release** → *Run workflow*. APK ada di *Artifacts* → `basterminal-release-apk`.
+- Rilis resmi: naikkan `version` di `src-tauri/tauri.conf.json` (dan `package.json`), lalu push tag:
+
+  ```bash
+  git tag v0.1.0 && git push origin v0.1.0
+  ```
+
+  APK otomatis dilampirkan ke halaman **Releases** GitHub.
+
+Hasilnya dua APK: `…-arm64.apk` (hampir semua HP modern) dan `…-arm.apk` (HP lama 32-bit). Android menolak memasang update dengan versi yang tidak lebih tinggi, jadi selalu naikkan `version` setiap rilis.
+
 ### iOS
 
 Butuh macOS dengan Xcode.
