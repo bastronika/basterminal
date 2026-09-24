@@ -1,5 +1,6 @@
 import "@xterm/xterm/css/xterm.css";
 import "./styles.css";
+import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
 import {
@@ -14,7 +15,9 @@ import {
 } from "./profiles";
 import { SftpPanel } from "./sftp";
 import { settings, TerminalTab, type Credentials } from "./terminal";
-import { knownHostsDialog, netToolsDialog, tunnelsDialog } from "./tools";
+import { MonitorController } from "./monitor";
+import { createNetToolsPage } from "./nettools";
+import { knownHostsDialog, tunnelsDialog } from "./tools";
 import { confirmDialog, errMsg, field, h, modal, promptDialog, toast } from "./ui";
 
 // ---------------------------------------------------------------- layout
@@ -27,9 +30,12 @@ const workspace = h("section", { class: "workspace" });
 const home = h("div", { class: "home" });
 const sessionList = h("div", { class: "session-list" });
 const sftp = new SftpPanel();
-const monitor = h("div", { class: "monitor" });
+const monitor = new MonitorController(() => showSide("monitor", true));
+let toolsPage: HTMLElement | null = null;
+/** What the workspace shows when no terminal tab is active. */
+let page: "home" | "tools" = "home";
 const sidebar = h("aside", { class: "sidebar" });
-const sideTabs = { sessions: sessionList, sftp: sftp.el };
+const sideTabs = { sessions: sessionList, sftp: sftp.el, monitor: monitor.panel };
 let sideMode: keyof typeof sideTabs = "sessions";
 
 const toolbarBtn = (icon: string, label: string, onclick: () => void) =>
@@ -43,8 +49,9 @@ const toolbar = h(
   toolbarBtn("＋", "Session", () => createSession()),
   toolbarBtn("⚡", "Quick", () => quickConnect()),
   toolbarBtn("🗂", "SFTP", () => showSide("sftp", true)),
+  toolbarBtn("📊", "Monitor", () => showSide("monitor", true)),
   toolbarBtn("⇄", "Tunnel", () => tunnelsDialog(active?.connId ?? null, active?.title ?? "")),
-  toolbarBtn("🛠", "Tools", () => netToolsDialog()),
+  toolbarBtn("🛠", "Tools", () => openTools()),
   toolbarBtn("⚙", "Settings", () => settingsDialog()),
 );
 
@@ -53,8 +60,9 @@ const sideSwitch = h(
   { class: "side-switch" },
   h("button", { type: "button", "data-mode": "sessions", onclick: () => showSide("sessions") }, "Sessions"),
   h("button", { type: "button", "data-mode": "sftp", onclick: () => showSide("sftp") }, "SFTP"),
+  h("button", { type: "button", "data-mode": "monitor", onclick: () => showSide("monitor") }, "Monitor"),
 );
-sidebar.append(sideSwitch, sessionList, sftp.el);
+sidebar.append(sideSwitch, sessionList, sftp.el, monitor.panel);
 
 const scrim = h("div", { class: "scrim", onclick: () => toggleSidebar(false) });
 
@@ -130,7 +138,7 @@ async function pasteClipboard() {
 
 document.querySelector("#app")!.append(
   toolbar,
-  h("div", { class: "main" }, sidebar, scrim, h("div", { class: "center" }, tabBar, workspace, monitor, extraKeys)),
+  h("div", { class: "main" }, sidebar, scrim, h("div", { class: "center" }, tabBar, workspace, monitor.bar, extraKeys)),
 );
 workspace.append(home);
 
@@ -138,7 +146,14 @@ workspace.append(home);
 
 function toggleSidebar(open?: boolean) {
   document.body.classList.toggle("side-open", open ?? !document.body.classList.contains("side-open"));
+  syncMonitor();
   setTimeout(() => active?.refit(), 250);
+}
+
+/** Points the monitor at the active connection and tells it whether its panel is on screen. */
+function syncMonitor() {
+  monitor.setActive(active?.state === "connected" ? active.connId : null);
+  monitor.setPanelVisible(sideMode === "monitor" && document.body.classList.contains("side-open"));
 }
 
 function showSide(mode: keyof typeof sideTabs, open = false) {
@@ -147,6 +162,7 @@ function showSide(mode: keyof typeof sideTabs, open = false) {
   sideSwitch.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.mode === mode));
   if (mode === "sftp") sftp.setConnection(active?.state === "connected" ? active.connId : null);
   if (open) toggleSidebar(true);
+  else syncMonitor();
 }
 
 function sessionCard(p: Profile, big = false) {
@@ -199,7 +215,7 @@ function renderSessions() {
         { class: "hero-actions" },
         h("button", { class: "btn primary", type: "button", onclick: () => createSession() }, "＋ Sesi baru"),
         h("button", { class: "btn", type: "button", onclick: () => quickConnect() }, "⚡ Quick connect"),
-        h("button", { class: "btn", type: "button", onclick: () => netToolsDialog() }, "🛠 Network tools"),
+        h("button", { class: "btn", type: "button", onclick: () => openTools() }, "🛠 Network tools"),
       ),
     ),
     profiles.length
@@ -242,13 +258,11 @@ async function quickConnect() {
 // ---------------------------------------------------------------- tabs
 
 function renderTabs() {
-  const homeTab = h(
-    "button",
-    { type: "button", class: active ? "tab" : "tab on", onclick: () => activate(null) },
-    "⌂",
-  );
+  const pageTab = (p: typeof page, label: string, title: string) =>
+    h("button", { type: "button", class: !active && page === p ? "tab on" : "tab", title, onclick: () => ((page = p), activate(null)) }, label);
   tabBar.replaceChildren(
-    homeTab,
+    pageTab("home", "⌂", "Beranda"),
+    pageTab("tools", "🛠", "Network tools"),
     ...tabs.map((t) =>
       h(
         "div",
@@ -273,16 +287,27 @@ function renderTabs() {
   );
 }
 
+function openTools() {
+  toggleSidebar(false);
+  page = "tools";
+  activate(null);
+}
+
 function activate(t: TerminalTab | null) {
   active = t;
-  home.hidden = !!t;
+  if (!t && page === "tools" && !toolsPage) {
+    toolsPage = createNetToolsPage();
+    workspace.append(toolsPage);
+  }
+  home.hidden = !!t || page !== "home";
+  if (toolsPage) toolsPage.hidden = !!t || page !== "tools";
   for (const tab of tabs) tab.el.hidden = tab !== t;
   extraKeys.hidden = !t;
   renderTabs();
   renderExtraKeys();
   renderReconnect();
   if (sideMode === "sftp") showSide("sftp");
-  updateMonitor();
+  syncMonitor();
   if (t) {
     requestAnimationFrame(() => {
       t.refit();
@@ -336,7 +361,7 @@ async function openSession(p: Profile) {
     if (t === active) {
       renderReconnect();
       if (sideMode === "sftp") showSide("sftp");
-      updateMonitor();
+      syncMonitor();
     }
   };
   t.onModifiersUsed = () => renderExtraKeys();
@@ -355,60 +380,25 @@ function closeTab(t: TerminalTab) {
   const i = tabs.indexOf(t);
   if (i < 0) return;
   tabs.splice(i, 1);
+  if (t.connId) monitor.forget(t.connId);
   t.dispose();
   activate(tabs[Math.min(i, tabs.length - 1)] ?? null);
 }
-
-// ---------------------------------------------------------------- remote monitor
-
-// Like MobaXterm's remote-monitoring bar: load, RAM, disk and uptime of the active host.
-const MONITOR_CMD =
-  "cut -d' ' -f1-3 /proc/loadavg; free -m | awk '/^Mem:/{print $3\"/\"$2\" MB\"}'; " +
-  "df -h / | awk 'NR==2{print $3\"/\"$2\" (\"$5\")\"}'; uptime -p 2>/dev/null || uptime";
-let monitorEnabled = localStorage.getItem("monitor") !== "off";
-let monitorBusy = false;
-
-async function updateMonitor() {
-  const t = active;
-  if (!monitorEnabled || !t || t.state !== "connected" || !t.connId) {
-    monitor.hidden = true;
-    return;
-  }
-  monitor.hidden = false;
-  if (monitorBusy) return;
-  monitorBusy = true;
-  try {
-    const res = await api.sshExec(t.connId, MONITOR_CMD);
-    if (t !== active) return;
-    const [load, mem, disk, up] = res.stdout.split("\n");
-    const item = (k: string, v?: string) => (v ? h("span", {}, h("b", {}, k), v) : null);
-    const items = [
-      item("CPU ", load),
-      item("RAM ", mem),
-      item("Disk ", disk),
-      item("⏱ ", up?.replace(/^up /, "")),
-    ];
-    monitor.replaceChildren(...items.filter((x): x is HTMLSpanElement => !!x));
-  } catch {
-    monitor.replaceChildren(h("span", { class: "muted" }, "monitor tidak tersedia"));
-  } finally {
-    monitorBusy = false;
-  }
-}
-setInterval(updateMonitor, 10_000);
 
 // ---------------------------------------------------------------- settings
 
 async function settingsDialog() {
   const font = h("input", { type: "number", min: "8", max: "32", value: String(settings.fontSize) });
-  const mon = h("input", { type: "checkbox", checked: monitorEnabled });
+  const mon = h("input", { type: "checkbox", checked: monitor.barEnabled });
+  const about = h("p", { class: "muted" }, "BasTerminal — github.com/bastronika/basterminal");
+  getVersion().then((v) => (about.textContent = `BasTerminal v${v} — github.com/bastronika/basterminal`)).catch(() => {});
   const body = h(
     "div",
     { class: "form" },
     field("Ukuran font terminal", font),
-    h("label", { class: "check" }, mon, "Tampilkan monitor server (CPU/RAM/Disk)"),
+    h("label", { class: "check" }, mon, "Tampilkan bar monitor server di bawah terminal"),
     h("button", { class: "btn", type: "button", onclick: () => knownHostsDialog() }, "Kelola known hosts…"),
-    h("p", { class: "muted" }, "BasTerminal v0.1.0 — github.com/bastronika/basterminal"),
+    about,
   );
   const res = await modal("Settings", body, [
     { label: "Batal", value: "cancel" },
@@ -418,9 +408,7 @@ async function settingsDialog() {
   settings.fontSize = Math.min(32, Math.max(8, Number(font.value) || 14));
   localStorage.setItem("fontSize", String(settings.fontSize));
   tabs.forEach((t) => t.setFontSize(settings.fontSize));
-  monitorEnabled = mon.checked;
-  localStorage.setItem("monitor", monitorEnabled ? "on" : "off");
-  updateMonitor();
+  monitor.setBarEnabled(mon.checked);
 }
 
 // ---------------------------------------------------------------- host key prompt

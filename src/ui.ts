@@ -28,6 +28,11 @@ export function h<K extends keyof HTMLElementTagNameMap>(
   return el;
 }
 
+/** replaceChildren that skips null/undefined/false (optional parts). */
+export function setChildren(el: Element, ...children: Child[]) {
+  el.replaceChildren(...children.filter((c): c is Node | string => c !== null && c !== undefined && c !== false));
+}
+
 export interface Button {
   label: string;
   value: string;
@@ -121,5 +126,5 @@ export function formatSize(n: number) {
     n /= 1024;
     i++;
   }
-  return `${i === 0 ? n : n.toFixed(1)} ${units[i]}`;
+  return `${i === 0 ? Math.round(n) : n.toFixed(1)} ${units[i]}`;
 }

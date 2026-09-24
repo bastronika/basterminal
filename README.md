@@ -13,9 +13,9 @@ Dibangun dengan [Tauri 2](https://v2.tauri.app): inti Rust (SSH murni lewat [`ru
 | Terminal | xterm.js (256 warna, link bisa diklik, resize PTY otomatis) |
 | Keyboard | Baris tombol tambahan: ESC, TAB, CTRL/ALT (sticky), panah, HOME/END, PGUP/PGDN, F1–F10, PASTE |
 | SFTP browser di sidebar | Jelajah folder, upload, download, edit teks, rename, chmod, mkdir, hapus |
-| Remote monitoring | Bar CPU load / RAM / disk / uptime server aktif |
+| Remote monitoring | Bar di bawah terminal (CPU %, RAM, jaringan ↓/↑, disk, uptime) + panel **Monitor**: grafik CPU & jaringan, memori/swap, semua disk, load, user login, proses teratas. Server Linux |
 | SSH tunnel | Local port forwarding (`ssh -L`), mis. buka panel web server di browser HP |
-| Network tools | TCP ping, port scanner, DNS lookup (tanpa root) |
+| Network tools | Ping ICMP (cadangan TCP), traceroute, port scanner (banner, progres, stop), scan LAN, DNS (A/AAAA/MX/TXT/NS/SOA/SRV/CAA/PTR, pilih server), whois, Wake-on-LAN, kalkulator subnet, info jaringan perangkat — tanpa root |
 | Autentikasi | Password, keyboard-interactive, private key (ed25519/RSA/ECDSA, dengan passphrase) |
 | Keamanan | Verifikasi host key (trust-on-first-use), peringatan jika key server berubah, kelola known hosts |
 
@@ -26,13 +26,18 @@ src/                 UI (TypeScript, tanpa framework)
   main.ts            layout, tab, sidebar, extra keys, monitor, dialog host key
   terminal.ts        tab terminal xterm.js <-> shell SSH
   sftp.ts            panel SFTP
-  tools.ts           network tools, tunnel, known hosts
+  monitor.ts         resource monitor (bar + panel)
+  chart.ts           grafik garis & meter untuk monitor
+  nettools.ts        halaman network tools
+  tools.ts           dialog tunnel & known hosts
   profiles.ts        penyimpanan & editor sesi
 src-tauri/src/       inti Rust
   ssh.rs             koneksi, autentikasi, shell PTY, exec, verifikasi host key
   sftp.rs            operasi SFTP
   tunnel.rs          local port forwarding
-  nettools.rs        TCP ping, port scan, DNS
+  monitor.rs         ambil & parse data /proc server
+  icmp.rs            ping/traceroute ICMP tanpa root
+  nettools.rs        ping, traceroute, port scan, scan LAN, DNS, whois, WoL
   known_hosts.rs     penyimpanan host key tepercaya
 ```
 
@@ -119,7 +124,9 @@ Isi `bundle.iOS.developmentTeam` di `src-tauri/tauri.conf.json` dengan Team ID A
 
 - **Penyimpanan kredensial**: profil sesi (termasuk password jika "Simpan password" dicentang, dan private key) disimpan di folder data privat aplikasi dalam bentuk teks biasa. Folder ini tidak bisa diakses aplikasi lain, tapi belum dienkripsi. Rencana berikutnya: Android Keystore / iOS Keychain.
 - **Download SFTP** disimpan ke `Download/basterminal` bila bisa ditulis; jika tidak, ke folder dokumen/data aplikasi. Path lengkap ditampilkan setelah download.
-- **Ping** memakai koneksi TCP karena ICMP butuh root di Android/iOS.
+- **Ping & scan LAN** memakai ICMP tanpa root (Android dan iOS mengizinkan "ping socket"); jika tidak diizinkan, otomatis memakai TCP connect.
+- **Traceroute** tersedia di Android dan Linux (IPv4). Di iOS belum didukung.
+- **Resource monitor** membaca `/proc` lewat SSH, jadi butuh server Linux. Di server lain bar monitor menampilkan pesan error.
 - Di iOS, koneksi SSH akan dijeda sistem saat aplikasi di background.
 
 ## Roadmap

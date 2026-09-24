@@ -333,16 +333,20 @@ pub struct ExecResult {
     pub exit_code: Option<u32>,
 }
 
-/// Runs a single command on a separate channel (used by the server monitor).
-#[tauri::command]
-pub async fn ssh_exec(
-    state: State<'_, AppState>,
-    id: String,
-    command: String,
+/// Runs `command` on a separate channel, optionally feeding `stdin`, and
+/// collects its output.
+pub async fn run_exec(
+    conn: &Conn,
+    command: &str,
+    stdin: Option<&[u8]>,
+    timeout: Duration,
 ) -> Result<ExecResult> {
-    let conn = state.conn(&id).await?;
     let mut channel = conn.handle.channel_open_session().await?;
     channel.exec(true, command).await?;
+    if let Some(input) = stdin {
+        channel.data(input).await?;
+        channel.eof().await?;
+    }
     let (mut stdout, mut stderr, mut exit_code) = (Vec::new(), Vec::new(), None);
     let run = async {
         while let Some(msg) = channel.wait().await {
@@ -355,7 +359,7 @@ pub async fn ssh_exec(
             }
         }
     };
-    tokio::time::timeout(Duration::from_secs(30), run)
+    tokio::time::timeout(timeout, run)
         .await
         .map_err(|_| Error::msg("Timeout menjalankan perintah"))?;
     Ok(ExecResult {
@@ -363,6 +367,17 @@ pub async fn ssh_exec(
         stderr: String::from_utf8_lossy(&stderr).into_owned(),
         exit_code,
     })
+}
+
+/// Runs a single command on a separate channel.
+#[tauri::command]
+pub async fn ssh_exec(
+    state: State<'_, AppState>,
+    id: String,
+    command: String,
+) -> Result<ExecResult> {
+    let conn = state.conn(&id).await?;
+    run_exec(&conn, &command, None, Duration::from_secs(30)).await
 }
 
 #[tauri::command]
