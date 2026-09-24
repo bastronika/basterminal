@@ -67,6 +67,8 @@ pub fn run() {
             sftp::sftp_chmod,
             sftp::sftp_read,
             sftp::sftp_write,
+            sftp::sftp_create,
+            sftp::sftp_stat,
             sftp::sftp_download,
             tunnel::tunnel_start,
             tunnel::tunnel_list,

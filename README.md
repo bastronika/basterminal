@@ -12,7 +12,8 @@ Dibangun dengan [Tauri 2](https://v2.tauri.app): inti Rust (SSH murni lewat [`ru
 | Tab terminal | Beberapa sesi SSH sekaligus dalam tab, dengan tombol reconnect |
 | Terminal | xterm.js (256 warna, link bisa diklik, resize PTY otomatis) |
 | Keyboard | Baris tombol tambahan: ESC, TAB, CTRL/ALT (sticky), panah, HOME/END, PGUP/PGDN, F1–F10, PASTE |
-| SFTP browser di sidebar | Jelajah folder, upload, download, edit teks, rename, chmod, mkdir, hapus |
+| SFTP browser di sidebar | Jelajah folder, upload, download, rename, chmod, mkdir, file baru, hapus |
+| MobaTextEditor | Editor teks remote di tab sendiri: syntax highlighting (shell, Python, JS/TS, JSON, YAML, nginx, Dockerfile, INI/TOML, PHP, SQL, HTML/CSS, Markdown, Go, Rust, C/C++…), nomor baris, cari & ganti (regex), lompat baris, undo/redo, word wrap, Ctrl+S; peringatan jika file berubah di server, line ending CRLF/LF & BOM dipertahankan, file biner ditolak, non-UTF-8 dibuka hanya-baca (maks. 5 MB) |
 | Remote monitoring | Bar di bawah terminal (CPU %, RAM, jaringan ↓/↑, disk, uptime) + panel **Monitor**: grafik CPU & jaringan, memori/swap, semua disk, load, user login, proses teratas. Server Linux |
 | SSH tunnel | Local port forwarding (`ssh -L`), mis. buka panel web server di browser HP |
 | Network tools | Ping ICMP (cadangan TCP), traceroute, port scanner (banner, progres, stop), scan LAN, DNS (A/AAAA/MX/TXT/NS/SOA/SRV/CAA/PTR, pilih server), whois, Wake-on-LAN, kalkulator subnet, info jaringan perangkat — tanpa root |
@@ -26,6 +27,7 @@ src/                 UI (TypeScript, tanpa framework)
   main.ts            layout, tab, sidebar, extra keys, monitor, dialog host key
   terminal.ts        tab terminal xterm.js <-> shell SSH
   sftp.ts            panel SFTP
+  editor.ts          editor teks remote (CodeMirror 6, dimuat saat dibutuhkan)
   monitor.ts         resource monitor (bar + panel)
   chart.ts           grafik garis & meter untuk monitor
   nettools.ts        halaman network tools

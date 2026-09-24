@@ -13,6 +13,7 @@ import {
   upsertProfile,
   type Profile,
 } from "./profiles";
+import type { EditorTab } from "./editor";
 import { SftpPanel } from "./sftp";
 import { settings, TerminalTab, type Credentials } from "./terminal";
 import { MonitorController } from "./monitor";
@@ -22,14 +23,21 @@ import { confirmDialog, errMsg, field, h, modal, promptDialog, toast } from "./u
 
 // ---------------------------------------------------------------- layout
 
-const tabs: TerminalTab[] = [];
-let active: TerminalTab | null = null;
+type Tab = TerminalTab | EditorTab;
+const tabs: Tab[] = [];
+let active: Tab | null = null;
+// The editor (CodeMirror) is loaded on first use, so tabs are told apart by `kind`.
+const isEditor = (t: Tab | null): t is EditorTab => t?.kind === "editor";
+/** The active tab when it is a terminal. */
+const term = () => (active instanceof TerminalTab ? active : null);
+/** The SSH session behind the active tab (an editor's session included). */
+const session = () => (isEditor(active) ? active.session : term());
 
 const tabBar = h("nav", { class: "tabbar" });
 const workspace = h("section", { class: "workspace" });
 const home = h("div", { class: "home" });
 const sessionList = h("div", { class: "session-list" });
-const sftp = new SftpPanel();
+const sftp = new SftpPanel((path) => openEditor(path));
 const monitor = new MonitorController(() => showSide("monitor", true));
 let toolsPage: HTMLElement | null = null;
 /** What the workspace shows when no terminal tab is active. */
@@ -50,7 +58,7 @@ const toolbar = h(
   toolbarBtn("⚡", "Quick", () => quickConnect()),
   toolbarBtn("🗂", "SFTP", () => showSide("sftp", true)),
   toolbarBtn("📊", "Monitor", () => showSide("monitor", true)),
-  toolbarBtn("⇄", "Tunnel", () => tunnelsDialog(active?.connId ?? null, active?.title ?? "")),
+  toolbarBtn("⇄", "Tunnel", () => tunnelsDialog(session()?.connId ?? null, session()?.title ?? "")),
   toolbarBtn("🛠", "Tools", () => openTools()),
   toolbarBtn("⚙", "Settings", () => settingsDialog()),
 );
@@ -99,7 +107,7 @@ function renderExtraKeys() {
   extraKeys.replaceChildren(
     ...KEYS.map(([label, seq]) => {
       const mod = label === "CTRL" ? "ctrl" : label === "ALT" ? "alt" : null;
-      const on = mod && active?.modifiers[mod];
+      const on = mod && term()?.modifiers[mod];
       return h(
         "button",
         {
@@ -108,14 +116,15 @@ function renderExtraKeys() {
           // Keep focus in the terminal so the soft keyboard stays open.
           onmousedown: (e: Event) => e.preventDefault(),
           onclick: () => {
-            if (!active) return;
+            const t = term();
+            if (!t) return;
             if (mod) {
-              active.modifiers[mod] = !active.modifiers[mod];
+              t.modifiers[mod] = !t.modifiers[mod];
               renderExtraKeys();
             } else {
-              active.sendKey(seq);
+              t.sendKey(seq);
             }
-            active.focus();
+            t.focus();
           },
         },
         label,
@@ -128,10 +137,10 @@ function renderExtraKeys() {
 async function pasteClipboard() {
   try {
     const text = await navigator.clipboard.readText();
-    active?.send(text);
+    term()?.send(text);
   } catch {
     const text = await promptDialog("Paste", "Tempel teks di sini");
-    if (text) active?.send(text);
+    if (text) term()?.send(text);
   }
   active?.focus();
 }
@@ -152,7 +161,8 @@ function toggleSidebar(open?: boolean) {
 
 /** Points the monitor at the active connection and tells it whether its panel is on screen. */
 function syncMonitor() {
-  monitor.setActive(active?.state === "connected" ? active.connId : null);
+  const s = session();
+  monitor.setActive(s?.state === "connected" ? s.connId : null);
   monitor.setPanelVisible(sideMode === "monitor" && document.body.classList.contains("side-open"));
 }
 
@@ -160,7 +170,8 @@ function showSide(mode: keyof typeof sideTabs, open = false) {
   sideMode = mode;
   for (const [k, el] of Object.entries(sideTabs)) el.hidden = k !== mode;
   sideSwitch.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.mode === mode));
-  if (mode === "sftp") sftp.setConnection(active?.state === "connected" ? active.connId : null);
+  const s = session();
+  if (mode === "sftp") sftp.setConnection(s?.state === "connected" ? s.connId : null);
   if (open) toggleSidebar(true);
   else syncMonitor();
 }
@@ -266,8 +277,13 @@ function renderTabs() {
     ...tabs.map((t) =>
       h(
         "div",
-        { class: `tab ${t === active ? "on" : ""} ${t.state}`, style: `--c:${t.profile.color}`, onclick: () => activate(t) },
-        h("span", { class: "dot" }),
+        {
+          class: `tab ${t === active ? "on" : ""} ${isEditor(t) ? `editor ${t.state}` : t.state}`,
+          style: `--c:${isEditor(t) ? t.color : t.profile.color}`,
+          title: isEditor(t) ? `${t.path} — ${t.session.title}` : t.title,
+          onclick: () => activate(t),
+        },
+        isEditor(t) ? h("span", { class: "tab-icon" }, "📝") : h("span", { class: "dot" }),
         h("span", { class: "tab-title" }, t.title),
         h(
           "button",
@@ -293,7 +309,7 @@ function openTools() {
   activate(null);
 }
 
-function activate(t: TerminalTab | null) {
+function activate(t: Tab | null) {
   active = t;
   if (!t && page === "tools" && !toolsPage) {
     toolsPage = createNetToolsPage();
@@ -302,7 +318,7 @@ function activate(t: TerminalTab | null) {
   home.hidden = !!t || page !== "home";
   if (toolsPage) toolsPage.hidden = !!t || page !== "tools";
   for (const tab of tabs) tab.el.hidden = tab !== t;
-  extraKeys.hidden = !t;
+  extraKeys.hidden = !(t instanceof TerminalTab);
   renderTabs();
   renderExtraKeys();
   renderReconnect();
@@ -319,8 +335,8 @@ function activate(t: TerminalTab | null) {
 const reconnectBar = h("div", { class: "reconnect" });
 function renderReconnect() {
   reconnectBar.replaceChildren();
-  if (active?.state === "closed") {
-    const t = active;
+  const t = term();
+  if (t?.state === "closed") {
     reconnectBar.append(
       h("span", {}, "Sesi terputus"),
       h("button", { class: "btn primary small", type: "button", onclick: () => connectTab(t) }, "Reconnect"),
@@ -376,13 +392,46 @@ async function openSession(p: Profile) {
   }
 }
 
-function closeTab(t: TerminalTab) {
+async function closeTab(t: Tab) {
+  // Closing a terminal also closes the editors that use its connection.
+  const closing = t instanceof TerminalTab ? [...tabs.filter((x) => isEditor(x) && x.session === t), t] : [t];
+  for (const x of closing) {
+    if (isEditor(x)) {
+      if (x !== active && x.dirty) activate(x);
+      if (!(await x.confirmClose())) return;
+    }
+  }
   const i = tabs.indexOf(t);
-  if (i < 0) return;
-  tabs.splice(i, 1);
-  if (t.connId) monitor.forget(t.connId);
-  t.dispose();
+  for (const x of closing) {
+    const j = tabs.indexOf(x);
+    if (j < 0) continue;
+    tabs.splice(j, 1);
+    if (x instanceof TerminalTab && x.connId) monitor.forget(x.connId);
+    x.dispose();
+  }
+  // Editors sit right after their terminal, so the next tab lands on index i.
   activate(tabs[Math.min(i, tabs.length - 1)] ?? null);
+}
+
+// ---------------------------------------------------------------- editor
+
+async function openEditor(path: string) {
+  const s = session();
+  if (!s || s.state !== "connected") return toast("Buka sesi SSH dulu", "error");
+  const existing = tabs.find((x) => isEditor(x) && x.session === s && x.path === path);
+  if (existing) return activate(existing);
+  toggleSidebar(false);
+  toast(`Membuka ${path.split("/").pop()}…`);
+  try {
+    const { EditorTab } = await import("./editor");
+    const ed = await EditorTab.open(s, path);
+    ed.onChange = () => renderTabs();
+    tabs.splice(tabs.indexOf(s) + 1 + tabs.filter((x) => isEditor(x) && x.session === s).length, 0, ed);
+    workspace.append(ed.el);
+    activate(ed);
+  } catch (e) {
+    toast(errMsg(e), "error");
+  }
 }
 
 // ---------------------------------------------------------------- settings
@@ -407,7 +456,7 @@ async function settingsDialog() {
   if (res !== "save") return;
   settings.fontSize = Math.min(32, Math.max(8, Number(font.value) || 14));
   localStorage.setItem("fontSize", String(settings.fontSize));
-  tabs.forEach((t) => t.setFontSize(settings.fontSize));
+  tabs.forEach((t) => t instanceof TerminalTab && t.setFontSize(settings.fontSize));
   monitor.setBarEnabled(mon.checked);
 }
 

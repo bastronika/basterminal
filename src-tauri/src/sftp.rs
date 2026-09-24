@@ -5,8 +5,10 @@ use std::sync::Arc;
 
 use base64::Engine;
 use russh_sftp::client::SftpSession;
+use russh_sftp::protocol::OpenFlags;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
+use tokio::io::AsyncWriteExt;
 
 use crate::error::{Error, Result};
 use crate::ssh::{AppState, Conn};
@@ -167,7 +169,10 @@ pub async fn sftp_read(state: State<'_, AppState>, id: String, path: String) -> 
     Ok(B64.encode(read_checked(&sftp, &path).await?))
 }
 
-/// Writes (creates or truncates) a remote file from base64 data.
+/// Writes a remote file from base64 data, creating it or replacing its whole
+/// content. (`SftpSession::write` opens without TRUNCATE, which would leave
+/// stale bytes behind when the new content is shorter.) Existing owner and
+/// permissions are kept because the file is truncated in place.
 #[tauri::command]
 pub async fn sftp_write(
     state: State<'_, AppState>,
@@ -176,8 +181,48 @@ pub async fn sftp_write(
     data: String,
 ) -> Result<()> {
     let bytes = B64.decode(data).map_err(|e| Error::msg(e.to_string()))?;
-    session(&state, &id).await?.write(path, &bytes).await?;
+    let sftp = session(&state, &id).await?;
+    let flags = OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE;
+    let mut file = sftp.open_with_flags(path, flags).await?;
+    file.write_all(&bytes).await?;
+    // flush waits for every write acknowledgement, so errors (disk full,
+    // quota) surface here instead of being lost on close.
+    file.flush().await?;
+    file.shutdown().await?;
     Ok(())
+}
+
+/// Creates an empty file; fails if it already exists.
+#[tauri::command]
+pub async fn sftp_create(state: State<'_, AppState>, id: String, path: String) -> Result<()> {
+    let sftp = session(&state, &id).await?;
+    let flags = OpenFlags::CREATE | OpenFlags::EXCLUDE | OpenFlags::WRITE;
+    let mut file = sftp
+        .open_with_flags(path, flags)
+        .await
+        .map_err(|e| Error::msg(format!("Tidak bisa membuat file: {e}")))?;
+    file.shutdown().await?;
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Stat {
+    size: u64,
+    mtime: Option<u32>,
+    permissions: Option<u32>,
+    is_dir: bool,
+}
+
+#[tauri::command]
+pub async fn sftp_stat(state: State<'_, AppState>, id: String, path: String) -> Result<Stat> {
+    let meta = session(&state, &id).await?.metadata(path).await?;
+    Ok(Stat {
+        size: meta.size.unwrap_or(0),
+        mtime: meta.mtime,
+        permissions: meta.permissions,
+        is_dir: meta.is_dir(),
+    })
 }
 
 /// Candidate folders for downloads, most user-visible first. On Android the

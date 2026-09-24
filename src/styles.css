@@ -171,6 +171,23 @@ button.tab { padding: 6px 12px; }
 .cmd { font-family: ui-monospace, Menlo, Consolas, monospace; word-break: break-all; }
 .proc-table .cmd { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ---------- remote text editor */
+.editor-view { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--bg); }
+.ed-head { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; background: var(--panel); border-bottom: 1px solid var(--border); }
+.ed-path { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: var(--muted); direction: rtl; text-align: left;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-toolbar { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.ed-toolbar::-webkit-scrollbar { display: none; }
+.ed-btn { flex-shrink: 0; min-width: 38px; padding: 6px 9px; border-radius: 7px; border: 1px solid var(--border); background: var(--panel-2); font-size: 13px; }
+.ed-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ed-host { flex: 1; min-height: 0; }
+.ed-host .cm-editor { height: 100%; }
+.ed-host .cm-editor.cm-focused { outline: none; }
+.ed-status { padding: 3px 10px calc(3px + var(--safe-bottom)); font-size: 12px; color: var(--muted); background: var(--panel);
+  border-top: 1px solid var(--border); white-space: nowrap; overflow-x: auto; scrollbar-width: none; font-variant-numeric: tabular-nums; }
+.tab-icon { font-size: 13px; }
+.tab.editor.dirty .tab-title { color: var(--status-warning); }
+
 /* ---------- network tools page */
 .tools-page { position: absolute; inset: 0; overflow-y: auto; padding: 14px 14px 32px; max-width: 900px; margin: 0 auto; }
 .tools-title { font-size: 18px; margin: 0 0 10px; }

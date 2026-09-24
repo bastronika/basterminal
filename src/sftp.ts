@@ -1,5 +1,5 @@
 // SFTP browser shown in the sidebar for the active SSH tab (like MobaXterm's left panel).
-import { api, b64ToBytes, bytesToB64, type SftpEntry } from "./api";
+import { api, bytesToB64, type SftpEntry } from "./api";
 import { confirmDialog, errMsg, h, modal, promptDialog, toast, formatSize } from "./ui";
 
 function perms(mode: number | null) {
@@ -31,7 +31,8 @@ export class SftpPanel {
   private cwdByConn = new Map<string, string>();
   private upload: HTMLInputElement;
 
-  constructor() {
+  /** Opens a remote file in the text editor (provided by the app). */
+  constructor(private openInEditor: (path: string) => void) {
     this.pathInput = h("input", {
       class: "sftp-path",
       spellcheck: "false",
@@ -54,6 +55,7 @@ export class SftpPanel {
         btn("⌂", "Home", () => this.open(undefined)),
         btn("⟳", "Refresh", () => this.open(this.cwd)),
         btn("＋", "Folder baru", () => this.mkdir()),
+        btn("📝", "File baru", () => this.newFile()),
         btn("⇪", "Upload", () => this.upload.click()),
       ),
       this.pathInput,
@@ -128,7 +130,7 @@ export class SftpPanel {
     const id = this.connId;
     if (!id) return;
     const buttons = [
-      ...(e.isDir ? [] : [{ label: "Download", value: "download" }, { label: "Edit", value: "edit" }]),
+      ...(e.isDir ? [] : [{ label: "Buka di editor", value: "edit", primary: true }, { label: "Download", value: "download" }]),
       { label: "Rename", value: "rename" },
       { label: "Chmod", value: "chmod" },
       { label: "Hapus", value: "delete", danger: true },
@@ -150,7 +152,7 @@ export class SftpPanel {
           break;
         }
         case "edit":
-          await this.edit(e);
+          this.openInEditor(e.path);
           break;
         case "rename": {
           const name = await promptDialog("Rename", "Nama baru", e.name);
@@ -181,22 +183,17 @@ export class SftpPanel {
     }
   }
 
-  private async edit(e: SftpEntry) {
-    if (e.size > 2 * 1024 * 1024) {
-      toast("File terlalu besar untuk editor (maks 2 MB)", "error");
-      return;
-    }
-    const text = new TextDecoder().decode(b64ToBytes(await api.sftpRead(this.connId!, e.path)));
-    const area = h("textarea", { class: "editor", spellcheck: "false", autocapitalize: "off" });
-    area.value = text;
-    const res = await modal(`Edit: ${e.name}`, area, [
-      { label: "Batal", value: "cancel" },
-      { label: "Simpan", value: "save", primary: true },
-    ]);
-    if (res === "save" && area.value !== text) {
-      await api.sftpWrite(this.connId!, e.path, bytesToB64(new TextEncoder().encode(area.value)));
-      toast("Tersimpan", "ok");
+  private async newFile() {
+    if (!this.connId) return;
+    const name = await promptDialog("File baru", "Nama file");
+    if (!name) return;
+    const path = joinPath(this.cwd, name);
+    try {
+      await api.sftpCreate(this.connId, path);
       await this.open(this.cwd);
+      this.openInEditor(path);
+    } catch (e) {
+      toast(errMsg(e), "error");
     }
   }
 

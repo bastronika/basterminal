@@ -118,6 +118,9 @@ export const api = {
   sftpRead: (id: string, path: string) => invoke<string>("sftp_read", { id, path }),
   sftpWrite: (id: string, path: string, data: string) => invoke<void>("sftp_write", { id, path, data }),
   sftpDownload: (id: string, path: string) => invoke<string>("sftp_download", { id, path }),
+  sftpCreate: (id: string, path: string) => invoke<void>("sftp_create", { id, path }),
+  sftpStat: (id: string, path: string) =>
+    invoke<{ size: number; mtime: number | null; permissions: number | null; isDir: boolean }>("sftp_stat", { id, path }),
 
   tunnelStart: (id: string, localPort: number, remoteHost: string, remotePort: number) =>
     invoke<TunnelInfo>("tunnel_start", { id, localPort, remoteHost, remotePort }),
