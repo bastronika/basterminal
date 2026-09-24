@@ -1,0 +1,26 @@
+[package]
+name = "basterminal"
+version = "0.1.0"
+description = "SSH, SFTP, tunnel & network tools for Android/iOS — MobaXterm-style"
+authors = ["bastronika"]
+edition = "2021"
+
+[lib]
+# The `_lib` suffix avoids a name clash with the bin target on Windows.
+name = "basterminal_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["net", "io-util", "sync", "time", "macros", "rt-multi-thread"] }
+# `ring` instead of the default aws-lc-rs keeps Android/iOS cross-compiles free of cmake/clang.
+russh = { version = "0.63", default-features = false, features = ["flate2", "ring", "rsa"] }
+russh-sftp = "3"
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
+base64 = "0.22"
