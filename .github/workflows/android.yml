@@ -1,0 +1,56 @@
+name: Android APK
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+        with:
+          # The default also installs the obsolete `tools` package, which no longer exists.
+          packages: platform-tools
+
+      - name: Install Android NDK
+        run: |
+          sdkmanager --install "ndk;27.2.12479018" "platforms;android-35" "build-tools;35.0.0"
+          echo "NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      # The Android Studio project is generated from tauri.conf.json; commit
+      # src-tauri/gen/android later if you need to customise it.
+      - name: Init Android project
+        run: test -d src-tauri/gen/android || npx tauri android init --ci
+
+      - name: Build debug APK
+        run: npx tauri android build --debug --apk --ci
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: basterminal-debug-apk
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
