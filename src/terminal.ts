@@ -44,6 +44,7 @@ const THEME = {
 
 export class TerminalTab {
   readonly key = crypto.randomUUID();
+  readonly kind = "terminal";
   readonly el: HTMLDivElement;
   readonly term: Terminal;
   private fit = new FitAddon();

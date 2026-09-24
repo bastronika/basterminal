@@ -1,6 +1,6 @@
 [package]
 name = "basterminal"
-version = "0.1.0"
+version = "0.2.0"
 description = "SSH, SFTP, tunnel & network tools for Android/iOS — MobaXterm-style"
 authors = ["bastronika"]
 edition = "2021"
@@ -24,6 +24,12 @@ russh-sftp = "3"
 thiserror = "2"
 uuid = { version = "1", features = ["v4"] }
 base64 = "0.22"
+# Network tools: raw ICMP sockets (ping/traceroute), DNS, interfaces, reverse lookup.
+libc = "0.2"
+socket2 = { version = "0.6", features = ["all"] }
+hickory-resolver = { version = "0.26", default-features = false, features = ["tokio", "system-config"] }
+if-addrs = "0.15"
+dns-lookup = "4"
 
 # Smaller, faster release builds (APK size matters on mobile).
 [profile.release]

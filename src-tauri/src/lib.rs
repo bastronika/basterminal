@@ -1,5 +1,7 @@
 mod error;
+mod icmp;
 mod known_hosts;
+mod monitor;
 mod nettools;
 mod sftp;
 mod ssh;
@@ -40,6 +42,7 @@ fn profiles_save(app: tauri::AppHandle, profiles: serde_json::Value) -> Result<(
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState::default())
+        .manage(nettools::Jobs::default())
         .setup(|app| {
             let path = app.path().app_data_dir()?.join("known_hosts.json");
             let state = app.state::<AppState>();
@@ -64,13 +67,22 @@ pub fn run() {
             sftp::sftp_chmod,
             sftp::sftp_read,
             sftp::sftp_write,
+            sftp::sftp_create,
+            sftp::sftp_stat,
             sftp::sftp_download,
             tunnel::tunnel_start,
             tunnel::tunnel_list,
             tunnel::tunnel_stop,
-            nettools::net_tcp_ping,
+            monitor::monitor_sample,
+            nettools::net_cancel,
+            nettools::net_ping,
+            nettools::net_traceroute,
             nettools::net_port_scan,
-            nettools::net_dns_lookup,
+            nettools::net_lan_scan,
+            nettools::net_interfaces,
+            nettools::net_dns_query,
+            nettools::net_whois,
+            nettools::net_wol,
         ])
         .run(tauri::generate_context!())
         .expect("error while running basterminal");
